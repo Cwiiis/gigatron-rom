@@ -329,7 +329,7 @@ def trampoline():
   st(d(lo('vAC')))              #18
   C('+-----------------------------------+')
 
-def end():
+def end(stem=None):
   errors = 0
 
   global _rom0, _rom1, _romSize
@@ -354,8 +354,9 @@ def end():
     exit()
 
   # Determine stem for file names
-  stem, ext = splitext(argv[0])
-  stem = basename(stem)
+  if stem is None:
+    stem, _ = splitext(argv[0])
+    stem = basename(stem)
   if stem == '': stem = 'out'
 
   # Disassemble for readability
