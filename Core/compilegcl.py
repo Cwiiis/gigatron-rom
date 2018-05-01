@@ -2667,7 +2667,7 @@ def addProgram(gclSource, name):
   startAdr = pc()
   label(name)
   print 'Compiling file %s label %s' % (gclSource, name)
-  program = gcl.Program(vCpuStart, name)
+  program = gcl.Program(vCpuStart, name, False)
   zpReset(zpFree)
   for line in open(gclSource).readlines():
     program.line(line)
