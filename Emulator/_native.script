@@ -1,0 +1,559 @@
+// base Object
+__intrinsic class object
+{
+	native __intrinsic final bool IsA(name n) const;
+
+/*	private static int objectCount;
+	private static int maxObjectCount;
+	private static SysMutex countMutex;
+
+	object()
+	{
+		countMutex.Lock();
+		defer countMutex.Unlock();
+		++objectCount;
+		if (objectCount > maxObjectCount)
+			maxObjectCount = objectCount;
+		printf("creating object, count=%d, max=%d\n", objectCount, maxObjectCount);
+	}
+
+	~object()
+	{
+		countMutex.Lock();
+		defer countMutex.Unlock();
+		--objectCount;
+		printf("deleting_object, count=%d, max=%d\n", objectCount, maxObjectCount);
+	}*/
+}
+
+native __format void printf(string fmt, ...);
+native __format string sprintf(string fmt, ...);
+native void print(string s);
+native void println(string s);
+native int length(string s);
+native string strtrim(string s);
+native int strfind(string s, string what);
+native string strerase(string s, int pos, int count=-1);
+native __intrinsic float sqrt(float f);
+native float pow(float b, float e);
+native string gets();
+native void exit(int exitCode);
+// get millisecond counter
+native int getms();
+native int ord(string s);
+native int rand();
+native int fopen(string fname, string mode);
+native void fclose(int f);
+native void fseek(int handle, int ofs, int mode);
+native int ftell(int handle);
+native int fread(byte &buf, int count, int handle);
+native int fwrite(const byte &buf, int count, int handle);
+native int fgetc(int handle);
+native void fputc(int ch, int handle);
+namespace Math {
+const float PI=3.1415927;
+native float sin(float x);
+native float cos(float x);
+native float tan(float x);
+native float atan2(float y, float x);
+}
+
+native void BlitBuffer(int width, int height, const uint buf[], bool fixedPixelSize = false);
+native void BlitBufferColor(int width, int height, const Color buf[], bool fixedPixelSize = false);
+native void BlitBufferPalette(int width, int height, const byte buf[], const uint pal[], bool fixedPixelSize = false);
+native void BlitBufferPaletteColor(int width, int height, const Color buf[], const Color pal[], bool fixedPixelSize = false);
+
+// I really need this, alpha blending in script isn't quite fast enough
+native void SwBlitImg(
+	uint[] dst, int dx, int dy, int dwidth, int dheight,
+	const uint[] src, int sx, int sy, int swidth, int sheight, int sstride,
+	float alpha = 1.0);
+
+native const uint[] Image(name filename);
+native IVec2 ImageDims(name filename);
+native void PlayMusic(name file, float volume = 1.0f);
+native void StopMusic();
+native void PlaySound(name file, float volume = 1.0f, float panning = 0.5f, float pitch = 1.0f);
+native void PrecacheSound(name file);
+native float Rand(float f=1.0, float t=0.0);
+struct IVec2 { int x, y }
+struct IRect { IVec2 tl, br }
+struct Color { byte r, g, b, a }
+
+struct Vec2
+{
+	float x, y;
+
+	// fake constructor
+	static inline noinit Vec2 Make(float nx=0., float ny=0.) {Vec2 res = {nx, ny};return res;}
+
+	static inline noinit Vec2 +(Vec2 a, Vec2 b) {Vec2 res = {a.x + b.x, a.y + b.y};return res;}
+	static inline noinit Vec2 +(Vec2 a, float b) {Vec2 res = {a.x + b, a.y + b};return res;}
+	static inline noinit Vec2 +(float a, Vec2 b) {Vec2 res = {a + b.x, a + b.y};return res;}
+
+	static inline noinit Vec2 -(Vec2 a, Vec2 b) {Vec2 res = {a.x - b.x, a.y - b.y};return res;}
+	static inline noinit Vec2 -(Vec2 a, float b) {Vec2 res = {a.x - b, a.y - b};return res;}
+	static inline noinit Vec2 -(float a, Vec2 b) {Vec2 res = {a - b.x, a - b.y};return res;}
+
+	static inline noinit Vec2 *(Vec2 a, Vec2 b) {Vec2 res = {a.x * b.x, a.y * b.y};return res;}
+	static inline noinit Vec2 *(Vec2 a, float b) {Vec2 res = {a.x * b, a.y * b};return res;}
+	static inline noinit Vec2 *(float a, Vec2 b) {Vec2 res = {a * b.x, a * b.y};return res;}
+
+	static inline noinit Vec2 /(Vec2 a, Vec2 b) {Vec2 res = {a.x / b.x, a.y / b.y};return res;}
+	static inline noinit Vec2 /(Vec2 a, float b) {Vec2 res = {a.x / b, a.y / b};return res;}
+	static inline noinit Vec2 /(float a, Vec2 b) {Vec2 res = {a / b.x, a / b.y};return res;}
+
+	static inline noinit Vec2 &+=(Vec2 &a, Vec2 b) {a.x += b.x; a.y += b.y; return a;}
+	static inline noinit Vec2 &-=(Vec2 &a, Vec2 b) {a.x -= b.x; a.y -= b.y; return a;}
+	static inline noinit Vec2 &*=(Vec2 &a, Vec2 b) {a.x *= b.x; a.y *= b.y; return a;}
+	static inline noinit Vec2 &/=(Vec2 &a, Vec2 b) {a.x /= b.x; a.y /= b.y; return a;}
+	static inline noinit Vec2 &*=(Vec2 &a, float b) {a.x *= b; a.y *= b; return a;}
+	static inline noinit Vec2 &/=(Vec2 &a, float b) {a.x /= b; a.y /= b; return a;}
+
+	static inline noinit bool ==(Vec2 a, Vec2 b)
+	{
+		return a.x == b.x && a.y == b.y;
+	}
+
+	static inline noinit bool !=(Vec2 a, Vec2 b)
+	{
+		return a.x != b.x || a.y != b.y;
+	}
+
+	// normalize
+	inline Vec2& normalize(){ float invLen = 1.0/sqrt(x*x+y*y); x *= invLen; y *= invLen; return this; }
+	// dot product
+	inline float dot(Vec2 o) const {return x*o.x + y*o.y;}
+
+	inline float GetMagSqr() const
+	{
+		return x*x + y*y;
+	}
+
+	inline Vec2 GetPerp() const
+	{
+		Vec2 res = {-y, x};
+		return res;
+	}
+}
+
+struct Vec3
+{
+	float x, y, z;
+
+	// fake constructor
+	static inline noinit Vec3 Make(float nx=0., float ny=0., float nz=0.) {Vec3 res = {nx, ny, nz};return res;}
+
+	static inline noinit Vec3 +(Vec3 a, Vec3 b) {Vec3 res = {a.x + b.x, a.y + b.y, a.z + b.z};return res;}
+	static inline noinit Vec3 +(Vec3 a, float b) {Vec3 res = {a.x + b, a.y + b, a.z + b};return res;}
+	static inline noinit Vec3 +(float a, Vec3 b) {Vec3 res = {a + b.x, a + b.y, a + b.z};return res;}
+
+	static inline noinit Vec3 -(Vec3 a, Vec3 b) {Vec3 res = {a.x - b.x, a.y - b.y, a.z - b.z};return res;}
+	static inline noinit Vec3 -(Vec3 a, float b) {Vec3 res = {a.x - b, a.y - b, a.z - b};return res;}
+	static inline noinit Vec3 -(float a, Vec3 b) {Vec3 res = {a - b.x, a - b.y, a - b.z};return res;}
+
+	static inline noinit Vec3 *(Vec3 a, Vec3 b) {Vec3 res = {a.x * b.x, a.y * b.y, a.z * b.z};return res;}
+	static inline noinit Vec3 *(Vec3 a, float b) {Vec3 res = {a.x * b, a.y * b, a.z * b};return res;}
+	static inline noinit Vec3 *(float a, Vec3 b) {Vec3 res = {a * b.x, a * b.y, a * b.z};return res;}
+
+	static inline noinit Vec3 /(Vec3 a, Vec3 b) {Vec3 res = {a.x / b.x, a.y / b.y, a.z / b.z};return res;}
+	static inline noinit Vec3 /(Vec3 a, float b) {Vec3 res = {a.x / b, a.y / b, a.z / b};return res;}
+	static inline noinit Vec3 /(float a, Vec3 b) {Vec3 res = {a / b.x, a / b.y, a / b.z};return res;}
+
+	static inline noinit Vec3 &+=(Vec3 &a, Vec3 b) {a.x += b.x; a.y += b.y; a.z += b.z; return a;}
+	static inline noinit Vec3 &-=(Vec3 &a, Vec3 b) {a.x -= b.x; a.y -= b.y; a.z -= b.z; return a;}
+	static inline noinit Vec3 &*=(Vec3 &a, Vec3 b) {a.x *= b.x; a.y *= b.y; a.z *= b.z; return a;}
+	static inline noinit Vec3 &/=(Vec3 &a, Vec3 b) {a.x /= b.x; a.y /= b.y; a.z /= b.z; return a;}
+	static inline noinit Vec3 &*=(Vec3 &a, float b) {a.x *= b; a.y *= b; a.z *= b; return a;}
+	static inline noinit Vec3 &/=(Vec3 &a, float b) {a.x /= b; a.y /= b; a.z /= b;return a;}
+
+	static inline noinit bool ==(Vec3 a, Vec3 b)
+	{
+		return a.x == b.x && a.y == b.y && a.z == b.z;
+	}
+
+	static inline noinit bool !=(Vec3 a, Vec3 b)
+	{
+		return a.x != b.x || a.y != b.y || a.z != b.z;
+	}
+
+	// normalize
+	inline Vec3& normalize(){ float invLen = 1.0/sqrt(x*x+y*y+z*z); x *= invLen; y *= invLen; z*=invLen; return this; }
+	// dot product
+	inline float dot(Vec3 o) const {return x*o.x + y*o.y + z*o.z;}
+	// cross product
+	inline noinit Vec3 cross(Vec3 o) const {Vec3 res= {y*o.z - z*o.y, z*o.x - x*o.z, x*o.y - y*o.x};return res;}
+}
+
+struct Vec4 { float x, y, z, w }
+struct Mat2 { Vec3 rows[2] }
+struct Mat3 { Vec3 rows[3] }
+struct Mat4 { Vec4 rows[4] }
+
+struct Vertex
+{
+	Vec3 pos;
+	Color color;
+	Vec2 uv;
+	Vec2 uv2;
+}
+
+struct Shader
+{
+	name vert;
+	name frag;
+}
+// Texture flags
+const int NO_MIPS = 1;
+const int NEAREST = 2;
+const int WRAP_X  = 4;
+const int WRAP_Y  = 8;
+
+// Draw types
+const int POINTS = 0;
+const int LINES = 1;
+const int LINE_STRIP = 2;
+const int TRIANGLES = 3;
+const int TRI_STRIP = 4;
+const int TRI_FAN = 5;
+
+// Comparison functions
+const int NEVER = 0;
+const int LESS = 1;
+const int EQUAL = 2;
+const int LEQUAL = 3;
+const int GREATER = 4;
+const int NOTEQUAL = 5;
+const int GEQUAL = 6;
+const int ALWAYS = 7;
+
+enum {
+PRIM_POINTS,
+PRIM_LINES,
+PRIM_LINE_STRIP,
+PRIM_TRIANGLES,
+PRIM_TRIANGLE_STRIP,
+PRIM_TRIANGLE_FAN
+}
+
+enum {
+BLEND_DISABLE,
+BLEND_ZERO,
+BLEND_ONE,
+BLEND_SRC_COLOR,
+BLEND_INV_SRC_COLOR,
+BLEND_SRC_ALPHA,
+BLEND_INV_SRC_ALPHA,
+BLEND_DST_ALPHA,
+BLEND_INV_DST_ALPHA,
+BLEND_DST_COLOR,
+BLEND_INV_DST_COLOR,
+BLEND_SRC_ALPHA_SATURATE,
+BLEND_CONSTANT_COLOR,
+BLEND_INV_CONSTANT_COLOR,
+BLEND_CONSTANT_ALPHA,
+BLEND_INV_CONSTANT_ALPHA
+}
+
+native void BlendFunc(int sf, int df);
+native void ClearColor(uint c);
+native void ClearDepth(float d);
+native void Clear();
+native void DepthTest(bool d);
+
+native void TextColor(Color c);
+const Vec2 DEFAULT_TEXT_SCALE = {1., 1.};
+native void Text(string s, Vec2 pos, Vec2 scale = DEFAULT_TEXT_SCALE);
+native void Line(Vec3 x0, Vec3 x1, Color c);
+native int Key(int code);
+native Vec2 Resolution();
+native bool LoadTile(name fname);
+native bool DrawTile(name fname, const Vec3 verts[4], uint pcolor = 0xffffffffu);
+native void Draw(int prim, int nverts, Vertex &arr);
+native void ColorShader();
+native void TexShader();
+native int MouseButtons();
+native Vec2 MousePos();
+native IVec2 MousePosBlit(int w, int h);
+
+// mouse button masks
+enum Button
+{
+	BUT_LEFT		=	1,
+	BUT_RIGHT		=	2,
+	BUT_MIDDLE		=	4
+}
+
+enum KeyCode
+{
+	KEY_NONE		=	0,
+
+	KEY_SHIFT		=	1,
+	KEY_CONTROL		=	2,
+	KEY_ALT			=	3,
+	KEY_WIN			=	4,
+	KEY_MENU		=	5,
+	KEY_PAUSE		=	6,
+	KEY_CAPS		=	7,
+
+	KEY_BACKSPACE	=	8,
+	KEY_TAB			=	9,
+
+	KEY_TILDE		=	10,
+
+	KEY_ENTER		=	13,
+
+	KEY_UP			=	14,
+	KEY_DOWN		=	15,
+	KEY_LEFT		=	16,
+	KEY_RIGHT		=	17,
+
+	KEY_ESCAPE		=	27,
+	KEY_SPACE		=	32,
+
+	KEY_APOSTROPHE	=	u'\'',	// 39
+	KEY_COMMA		=	u',',	// 44
+	KEY_MINUS		=	u'-',	// 45
+	KEY_DOT			=	u'.',	// 46
+	KEY_SLASH		=	u'/',	// 47
+
+	KEY_0			=	u'0',
+	KEY_1			=	u'1',
+	KEY_2			=	u'2',
+	KEY_3			=	u'3',
+	KEY_4			=	u'4',
+	KEY_5			=	u'5',
+	KEY_6			=	u'6',
+	KEY_7			=	u'7',
+	KEY_8			=	u'8',
+	KEY_9			=	u'9',
+
+	KEY_SEMICOLON	=	u';',	// 59
+	KEY_EQUALS		=	u'=',	// 61
+
+	KEY_A			=	u'A',
+	KEY_B			=	u'B',
+	KEY_C			=	u'C',
+	KEY_D			=	u'D',
+	KEY_E			=	u'E',
+	KEY_F			=	u'F',
+	KEY_G			=	u'G',
+	KEY_H			=	u'H',
+	KEY_I			=	u'I',
+	KEY_J			=	u'J',
+	KEY_K			=	u'K',
+	KEY_L			=	u'L',
+	KEY_M			=	u'M',
+	KEY_N			=	u'N',
+	KEY_O			=	u'O',
+	KEY_P			=	u'P',
+	KEY_Q			=	u'Q',
+	KEY_R			=	u'R',
+	KEY_S			=	u'S',
+	KEY_T			=	u'T',
+	KEY_U			=	u'U',
+	KEY_V			=	u'V',
+	KEY_W			=	u'W',
+	KEY_X			=	u'X',
+	KEY_Y			=	u'Y',
+	KEY_Z			=	u'Z',
+
+	KEY_LARR		=	u'[',	// 91
+	KEY_BACKSLASH	=	u'\\',	// 92
+	KEY_RARR		=	u']',	// 93
+
+	KEY_HOME		=	0x60,
+	KEY_END			=	0x61,
+	KEY_INSERT		=	0x62,
+	KEY_DELETE		=	0x63,
+	KEY_PAGE_UP		=	0x64,
+	KEY_PAGE_DOWN	=	0x65,
+
+	KEY_PRN_SCR		=	0x66,
+	KEY_SCROLL_LOCK	=	0x67,
+
+	KEY_F1			=	0x70,
+	KEY_F2			=	0x71,
+	KEY_F3			=	0x72,
+	KEY_F4			=	0x73,
+	KEY_F5			=	0x74,
+	KEY_F6			=	0x75,
+	KEY_F7			=	0x76,
+	KEY_F8			=	0x77,
+	KEY_F9			=	0x78,
+	KEY_F10			=	0x79,
+	KEY_F11			=	0x7a,
+	KEY_F12			=	0x7b,
+
+	KEY_NUM_0		=	0x7c,
+	KEY_NUM_1		=	0x7d,
+	KEY_NUM_2		=	0x7e,
+	KEY_NUM_3		=	0x7f,
+	KEY_NUM_4		=	0x80,
+	KEY_NUM_5		=	0x81,
+	KEY_NUM_6		=	0x82,
+	KEY_NUM_7		=	0x83,
+	KEY_NUM_8		=	0x84,
+	KEY_NUM_9		=	0x85,
+
+	KEY_NUM_LOCK	=	0x86,
+	KEY_NUM_PLUS	=	0x87,
+	KEY_NUM_MINUS	=	0x88,
+	KEY_NUM_MUL		=	0x89,
+	KEY_NUM_DIV		=	0x8a,
+	KEY_NUM_ENTER	=	0x8b,
+	KEY_NUM_DOT		=	0x8c,
+	// other are reserved
+
+	KEY_MAX			=	0xc0
+}
+
+//// _native_thread.script **
+
+// low level thread API
+
+// event
+native int sysCreateEvent(int manualReset = 0);
+native void sysDestroyEvent(int handle);
+native void sysWaitEvent(int handle);
+native void sysSetEvent(int handle);
+native void sysResetEvent(int handle);
+
+// thread
+native int sysCreateThread(SysThread thread);
+native void sysJoinThread(int handle);
+native void sysThreadSleep(int msec);
+native bool sysThreadTerminating(int handle);
+
+// mutex
+native int sysCreateMutex();
+native void sysDestroyMutex(int handle);
+native void sysLockMutex(int handle);
+native void sysUnlockMutex(int handle);
+
+// atomic
+native int AtomicIncrement(int &val);
+native int AtomicDecrement(int &val);
+native int AtomicLoad(const int &val);
+native void AtomicStore(int &val, int newVal);
+
+// event wrapper
+// default is autoreset
+nocopy struct SysEvent
+{
+	private int handle = sysCreateEvent();
+
+	~SysEvent()
+	{
+		sysDestroyEvent(handle);
+	}
+
+	void Wait()
+	{
+		sysWaitEvent(handle);
+	}
+
+	void Set()
+	{
+		sysSetEvent(handle);
+	}
+}
+
+nocopy struct SysManualEvent
+{
+	private int handle = sysCreateEvent(1);
+
+	~SysManualEvent()
+	{
+		sysDestroyEvent(handle);
+	}
+
+	void Wait()
+	{
+		sysWaitEvent(handle);
+	}
+
+	void Set()
+	{
+		sysSetEvent(handle);
+	}
+
+	void Reset()
+	{
+		sysResetEvent(handle);
+	}
+}
+
+// mutex wrapper
+nocopy struct SysMutex
+{
+	~SysMutex()
+	{
+		sysDestroyMutex(handle);
+	}
+
+	void Lock() const
+	{
+		sysLockMutex(handle);
+	}
+
+	void Unlock() const
+	{
+		sysUnlockMutex(handle);
+	}
+
+	private int handle = sysCreateMutex();
+}
+
+// thread wrapper
+nocopy class SysThread
+{
+	~SysThread()
+	{
+		Join();
+	}
+
+	void Run()
+	{
+		if (!handle)
+			handle = sysCreateThread(this);
+	}
+
+	inline final bool Terminating() const
+	{
+		return sysThreadTerminating(handle);
+	}
+
+	void Join()
+	{
+		if (!handle)
+			return;
+
+		sysJoinThread(handle);
+		handle = 0;
+	}
+
+	final static void Sleep(int msec)
+	{
+		sysThreadSleep(msec);
+	}
+
+	// override
+	void Entry()
+	{
+	}
+
+// private:
+	private int handle;
+}
+
+//// ** _native_thread.script
+
+// FIXME: hacking here, should fix parser!
+void function(short samples[], int numSamples) __mixfunc;
+native void SetMixCallback(__mixfunc f);
+native int GetSampleRate();
+
+// prop_test
+native int __strlen();
+native byte[] __slice(int from, int to = -1);

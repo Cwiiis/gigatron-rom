@@ -1,0 +1,490 @@
+//-----------------------------------------------------------------------------
+// configuration:
+
+// set this to true to use GPU vsync for timing
+bool use_vsync = true;
+
+// set to false to disable sound
+bool use_sound = true;
+
+// set this to false to fully utilize the whole screen
+// however, pixels won't have same size
+bool fixed_size_pixel = true;
+
+// ROM file to load
+const string rom_file = "gigatron/theloop.2.rom";
+
+// set to false to disable debug overlay
+bool debug_overlay = true;
+
+//-----------------------------------------------------------------------------
+// rendering:
+
+const float FRAME_PERIOD = 1.0/60.0;
+
+const int W = 800;
+const int H = 480;
+
+// vram
+byte vram[W*H];
+// palette
+uint pal[256];
+
+//-----------------------------------------------------------------------------
+// audio:
+
+const byte AUD_XOR_MASK = 0x00;
+
+const int AUD_BUFF_SIZE = 65536;
+const int AUD_BUFF_MASK = AUD_BUFF_SIZE-1;
+
+byte audBuff[AUD_BUFF_SIZE];
+
+int audOld;
+
+const int CACHELINE = 64;
+
+// trade latency for nicer audio
+// there's one drawback, if we get too much out of sync
+// we either increase latency or decrease to a point where
+// audio starts to sound garbled; so we try to compensate for this
+// in the mixing callback. this may cause a pop now and then
+// but it seems much better than the old approach
+// which did random pitch shifting
+// if this happens too often, try lowering latency divisor
+
+const int AUD_LATENCY_DIV = 10;
+
+byte pad0[CACHELINE];
+
+SysMutex audMutex;
+
+int audRate = 60*521;
+int audLatency = audRate/AUD_LATENCY_DIV;
+int audPtr = audLatency;
+
+byte pad1[CACHELINE];
+
+// samplerate
+int rate;
+
+// last known latency offset (for debug overlay)
+int latdelta;
+
+// interleaved L,R stereo samples
+void mixCbk(short buff[], int nsam)
+{
+	int from = audOld;
+
+	audMutex.Lock();
+	int curPtr = audPtr;
+	int audLatencyLocal = audLatency;
+	int audRateLocal = audRate;
+	audMutex.Unlock();
+
+	// fill buffer
+
+	// we have one sample per hsync
+
+	int step = cast int((cast float audRateLocal / rate) * 65536.0 + 0.5);
+
+	static int pos = 0;
+
+	for (int i=0; i<nsam; i++)
+	{
+		int ipos = (pos >> 16) + from;
+		int ipos1 = ipos+1;
+
+		int sample = ((audBuff[ipos & AUD_BUFF_MASK] ^ AUD_XOR_MASK) >> 4) << 10;
+		int sample1 = ((audBuff[ipos1 & AUD_BUFF_MASK] ^ AUD_XOR_MASK) >> 4) << 10;
+
+		int frac = (pos >> 8) & 255;
+
+		sample += (sample1 - sample)*frac >> 8;
+
+		buff[2*i+0] = buff[2*i+1] = sample;
+
+		pos += step;
+	}
+
+	audOld = ((pos >> 16) + from) & AUD_BUFF_MASK;
+	pos &= 65535;
+
+	// measure latency and compensate if too far away
+
+	int delta = curPtr - audOld;
+
+	if (delta < 0)
+		delta += AUD_BUFF_SIZE;
+
+	//printf("cur: %d from: %d delta: %d nsam: %d\n", curPtr, from, delta, nsam);
+
+	if (delta <= audLatencyLocal * 0.6 || delta * 0.6 >= audLatencyLocal)
+	{
+		//printf("audio out of sync - compensating...\n");
+		audOld = (curPtr - audLatencyLocal) & AUD_BUFF_MASK;
+	}
+
+	latdelta = delta;
+}
+
+//-----------------------------------------------------------------------------
+// emulator:
+
+/*
+BSD 2-Clause License
+
+Copyright (c) 2017, Marcel van Kervinck
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+enum Reg
+{
+	IR,
+	D,
+	AC,
+	X,
+	Y,
+	OUT,
+	undef,
+
+	MAX_REG
+}
+
+struct CpuState { // TTL state that the CPU controls
+  ushort PC;
+  byte reg[MAX_REG];
+};
+
+byte ROM[(1<<16)*2];
+byte RAM[1<<15];
+byte IN=0xff;
+byte XOUT=AUD_XOR_MASK;
+
+CpuState cpuCycle(const CpuState S)
+{
+  CpuState T = S; // New state is old state unless something changes
+
+  T.reg[IR] = ROM[S.PC*2 + 0]; // Instruction Fetch
+  T.reg[D]  = ROM[S.PC*2 + 1];
+
+  int ins = S.reg[IR] >> 5;       // Instruction
+  int mod = (S.reg[IR] >> 2) & 7; // Addressing mode (or condition)
+  int bus= S.reg[IR]&3;           // Busmode
+  int W = (ins == 6);        // Write instruction?
+  int J = (ins == 7);        // Jump instruction?
+
+  byte lo=S.reg[D], hi=0; // Mode Decoder
+  // problem: to; we don't have pointers
+  // since to is never IR, use 0
+  int to = 0;
+
+  int incX=0;
+  if (!J)
+    switch (mod) {
+      //#define E(p) (W?0:p) // Disable AC and OUT loading during RAM write
+      case 0: to= AC*!W;                                   break;
+      case 1: to= AC*!W; lo=S.reg[X];                      break;
+      case 2: to= AC*!W;              hi=S.reg[Y];         break;
+      case 3: to= AC*!W; lo=S.reg[X]; hi=S.reg[Y];         break;
+      case 4: to=X;                                        break;
+      case 5: to=Y;                                        break;
+      case 6: to=OUT*!W;                                   break;
+      case 7: to=OUT*!W; lo=S.reg[X]; hi=S.reg[Y]; incX=1; break;
+    }
+  ushort addr = (hi << 8) | lo;
+
+  int B = S.reg[undef]; // Data Bus
+  switch (bus) {
+    case 0: B=S.reg[D];                   break;
+    case 1: if (!W) B = RAM[addr&0x7fff]; break;
+    case 2: B=S.reg[AC];                  break;
+    case 3: B=IN;                         break;
+  }
+
+  if (W) RAM[addr&0x7fff] = B; // Random Access Memory
+
+  byte ALU; // Arithmetic and Logic Unit
+  switch (ins) {
+    case 0: ALU =             B; break; // LD
+    case 1: ALU = S.reg[AC] & B; break; // ANDA
+    case 2: ALU = S.reg[AC] | B; break; // ORA
+    case 3: ALU = S.reg[AC] ^ B; break; // XORA
+    case 4: ALU = S.reg[AC] + B; break; // ADDA
+    case 5: ALU = S.reg[AC] - B; break; // SUBA
+    case 6: ALU = S.reg[AC];     break; // ST
+    case 7: ALU = -S.reg[AC];    break; // Bcc/JMP
+  }
+
+  if (to) T.reg[to] = ALU; // Load value into register
+  if (incX) T.reg[X] = S.reg[X] + 1; // Increment X
+
+  T.PC = S.PC + 1; // Next instruction
+  if (J) {
+    if (mod != 0) { // Conditional branch within page
+      int cond = (S.reg[AC]>>7) + 2*(S.reg[AC]==0);
+      if (mod & (1 << cond)) // 74153
+        T.PC = (S.PC & 0xff00) | B;
+    } else
+      T.PC = (S.reg[Y] << 8) | B; // Unconditional far jump
+  }
+  return T;
+}
+
+void garble(byte mem[])
+{
+  for (int i=0; i<mem.size; i++) mem[i] = rand();
+}
+
+// globals, I know...
+CpuState S;
+int vgaX=0, vgaY=0;
+
+void InitCPU()
+{
+  //srand(time(NULL)); // Initialize with randomized data
+  garble(ROM);
+  garble(RAM);
+  garble(S.reg);
+
+  int fp = fopen(rom_file, "rb");
+  if (!fp) {
+    printf("Error: failed to open ROM file\n");
+    return;//exit(EXIT_FAILURE);
+  }
+  fread(ROM[0], 2*65536, fp);
+  fclose(fp);
+
+  S.PC = 0;
+  vgaX = vgaY = 0;
+}
+
+void DrawLEDs()
+{
+	for (int i=0; i<4; i++)
+	{
+		int mask = 1 << (3-i);
+
+		int state = (XOUT & mask) != 0;
+
+		int base = W-40 + 5*i;
+
+		byte colour = state ? 0x3f : 0x1;
+
+		for (int y=0; y<4; y++)
+			for (int x=0; x<4; x++)
+				vram[base + y*W + x] = colour;
+	}
+}
+
+void HandleInput()
+{
+	byte state = 0;
+
+	state |= Key(KEY_RIGHT) * 1;
+	state |= Key(KEY_LEFT)  * 2;
+	state |= Key(KEY_DOWN)  * 4;
+	state |= Key(KEY_UP)    * 8;
+	state |= Key(KEY_A)     * 16;
+	state |= Key(KEY_S)     * 32;
+	// buttons flipped since last release
+	state |= Key(KEY_X)     * 64;
+	state |= Key(KEY_Z)     * 128;
+
+	IN = ~state;
+}
+
+void GenFrame()
+{
+	// max cycles per frame (a frame should be always 104200 cycles,
+	// so 128k should do)
+	const int MAX_CYCLES = 1 << 17;
+
+	int audPtrLocal = audPtr;
+
+	int numAuds = 0;
+
+	static int reset = -2;
+
+	for(int i=reset; i<MAX_CYCLES; i++)
+	{
+	    if (i < 0)
+	    	S.PC = 0;
+
+	    CpuState T = cpuCycle(S); // Update CPU
+
+	    int hSync = (T.reg[OUT] & 0x40) - (S.reg[OUT] & 0x40); // "VGA monitor" (use simple stdout)
+	    int vSync = (T.reg[OUT] & 0x80) - (S.reg[OUT] & 0x80);
+	    if (vSync < 0) vgaY = -36; // Falling vSync edge
+	    if (vgaX++ < 200) {
+	      if (hSync) ;//putchar(u'|');              // Visual indicator of hSync
+	      else if (vgaX == 200) ;//putchar(u'>');   // Too many pixels
+	      else if (~S.reg[OUT] & 0x80);// putchar(u'^'); // Visualize vBlank pulse
+	      else
+	      {
+	      	if (cast uint vgaY < 480u)
+	      	{
+	      		int base = vgaY*W+4*vgaX;
+	      		vram[base] = vram[base+1] = vram[base+2] = vram[base+3] =
+	      			S.reg[OUT] & 63;      // Plot pixel
+	      	}
+	      }
+	    }
+	    if (hSync > 0) { // Rising hSync edge
+	      XOUT = T.reg[AC];
+
+	      numAuds++;
+	      audBuff[audPtrLocal] = XOUT;
+	      audPtrLocal = (audPtrLocal+1) & AUD_BUFF_MASK;
+
+	      /*printf("%s line %-3d xout %02x t %0.3f\n",
+	             vgaX!=200 ? "~" : "", // Mark horizontal cycle errors
+	             vgaY, T.reg[AC], t/6.250e+06);*/
+	      vgaX = 0;
+	      vgaY++;
+
+	      T.reg[undef] = rand() & 0xff; // Change this once in a while
+	    }
+	    S=T;
+
+	    if (vSync < 0)
+	    	break;
+	}
+
+	reset = 0;
+
+	DrawLEDs();
+
+	audMutex.Lock();
+	audPtr = audPtrLocal;
+
+	if (numAuds)
+	{
+		// adjust rate and desired latency
+		audRate = numAuds*60;
+		audLatency = audRate/AUD_LATENCY_DIV;
+	}
+
+	audMutex.Unlock();
+}
+
+//-----------------------------------------------------------------------------
+// script entry:
+
+void Init()
+{
+	printf("initializing...\n");
+
+	rate = GetSampleRate();
+	printf("samplerate: %d Hz\n", rate);
+
+	for (int i=0; i<64; i++)
+	{
+		int r = (i>>0) & 3;
+		int g = (i>>2) & 3;
+		int b = (i>>4) & 3;
+
+		r = r | (r << 2) | (r << 4) | (r << 6);
+		g = g | (g << 2) | (g << 4) | (g << 6);
+		b = b | (b << 2) | (b << 4) | (b << 6);
+
+		uint p = 0xff000000u;
+		p |= r << 16;
+		p |= g << 8;
+		p |= b << 0;
+		pal[i] = p;
+	}
+
+	InitCPU();
+
+	if (use_sound)
+		SetMixCallback(mixCbk);
+}
+
+void Done()
+{
+	printf("exiting...\n");
+	SetMixCallback(null);
+}
+
+void Tick(float delta)
+{
+	static float accumulator = 0.0;
+
+	int ms = getms();
+
+	HandleInput();
+
+	accumulator += delta;
+
+	if (use_vsync)
+		accumulator = FRAME_PERIOD;
+
+	// note: beware spiral of death if we're too slow
+	while (accumulator >= FRAME_PERIOD)
+	{
+		GenFrame();
+		accumulator -= FRAME_PERIOD;
+	}
+
+	ClearColor(0xff000000u);
+	Clear();
+
+	// lame FPS counter
+	static float fpsSum;
+	static int fpsCount;
+	static int fps;
+
+	fpsSum += delta;
+	fpsCount++;
+
+	if (fpsSum >= 1.)
+	{
+		fps = cast int(cast float(fpsCount) / fpsSum + 0.5);
+		fpsSum = 0.;
+		fpsCount = 0;
+	}
+
+
+	Vec2 pos;
+	Vec2 scl = {1., 1.};
+
+	Color tc = {255, 255, 255, 255};
+	TextColor(tc);
+
+	ms = getms() - ms;
+
+	BlitBufferPalette(W, H, vram, pal, fixed_size_pixel);
+
+	if (!debug_overlay)
+		return;
+
+	string txt = sprintf("%d fps (sw frame: %d msec)", cast int(fps + 0.5),
+		ms);
+	Text(txt, pos, scl);
+
+	pos.y += 16.0;
+	txt = sprintf("aud_ofs: %d, want: %d", latdelta, audLatency);
+	Text(txt, pos, scl);
+}
