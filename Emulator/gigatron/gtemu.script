@@ -276,13 +276,28 @@ void HandleLoader()
   }
 
   case RESYNC:
+    if (page_start >= program_size) {
+      payload_adr = ((program[0] << 8) | program[1]);
+      payload_size = 0;
+    }
+
     if (sending != IDLE) {
       if (payload_size > 60) payload_size = 60;
       handleFrame(payload_size, payload_adr);
       break;
     }
-    printf("Sending payload (%04x/%d)...\n", payload_adr, payload_size);
+
     checksum = 0x67; // 'g'
+    if (payload_size == 0) {
+      payload_adr = ((program[0] << 8) | program[1]);
+      printf("Sending exec (%04x)...\n", payload_adr);
+      loading = EXEC;
+      sending = PROTOCOL;
+      sendFirst(0x4C, 8); // 'L'
+      break;
+    }
+
+    printf("Sending payload (%04x/%d)...\n", payload_adr, payload_size);
     frames_sent = -1;
     loading = SEND;
     // Pass through to SEND
@@ -295,29 +310,12 @@ void HandleLoader()
         sendFirst(0x4C, 8); // 'L'
         sending = PROTOCOL;
       } else {
-        if (page_start + payload_size + 4 < program_size) {
-          page_start += payload_size + 3;
-
-           payload_size = program[page_start + 2];
-           payload_adr = ((program[page_start] << 8) |
-                           program[page_start + 1]);
-          printf("Sending payload (%04x/%d)...\n",
-                 payload_adr, payload_size);
-          printf("Sending next frame (%04x/%d)...\n",
-                 payload_adr, payload_size);
-
-          checksum = 0x67;
-          frames_sent = 0;
-          sending = PROTOCOL;
-          sendFirst(0x4C, 8);  // 'L'
-        } else {
-          // We've finished sending the program, send the execution frame.
-          payload_adr = ((program[0] << 8) | program[1]);
-          printf("Sending exec (%04x)...\n", payload_adr);
-          sendFirst(0x4C, 8); // 'L'
-          sending = PROTOCOL;
-          loading = EXEC;
-        }
+        page_start += payload_size + 3;
+        printf("Sending resync...\n");
+        checksum = 0;
+        loading = RESYNC;
+        sending = PROTOCOL;
+        sendFirst(-1, 8);
       }
     } else {
       payload_size -= frames_sent * 60;
