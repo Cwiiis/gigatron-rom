@@ -74,58 +74,58 @@ int latdelta;
 // interleaved L,R stereo samples
 void mixCbk(short buff[], int nsam)
 {
-	int from = audOld;
+  int from = audOld;
 
-	audMutex.Lock();
-	int curPtr = audPtr;
-	int audLatencyLocal = audLatency;
-	int audRateLocal = audRate;
-	audMutex.Unlock();
+  audMutex.Lock();
+  int curPtr = audPtr;
+  int audLatencyLocal = audLatency;
+  int audRateLocal = audRate;
+  audMutex.Unlock();
 
-	// fill buffer
+  // fill buffer
 
-	// we have one sample per hsync
+  // we have one sample per hsync
 
-	int step = cast int((cast float audRateLocal / rate) * 65536.0 + 0.5);
+  int step = cast int((cast float audRateLocal / rate) * 65536.0 + 0.5);
 
-	static int pos = 0;
+  static int pos = 0;
 
-	for (int i=0; i<nsam; i++)
-	{
-		int ipos = (pos >> 16) + from;
-		int ipos1 = ipos+1;
+  for (int i=0; i<nsam; i++)
+  {
+    int ipos = (pos >> 16) + from;
+    int ipos1 = ipos+1;
 
-		int sample = ((audBuff[ipos & AUD_BUFF_MASK] ^ AUD_XOR_MASK) >> 4) << 10;
-		int sample1 = ((audBuff[ipos1 & AUD_BUFF_MASK] ^ AUD_XOR_MASK) >> 4) << 10;
+    int sample = ((audBuff[ipos & AUD_BUFF_MASK] ^ AUD_XOR_MASK) >> 4) << 10;
+    int sample1 = ((audBuff[ipos1 & AUD_BUFF_MASK] ^ AUD_XOR_MASK) >> 4) << 10;
 
-		int frac = (pos >> 8) & 255;
+    int frac = (pos >> 8) & 255;
 
-		sample += (sample1 - sample)*frac >> 8;
+    sample += (sample1 - sample)*frac >> 8;
 
-		buff[2*i+0] = buff[2*i+1] = sample;
+    buff[2*i+0] = buff[2*i+1] = sample;
 
-		pos += step;
-	}
+    pos += step;
+  }
 
-	audOld = ((pos >> 16) + from) & AUD_BUFF_MASK;
-	pos &= 65535;
+  audOld = ((pos >> 16) + from) & AUD_BUFF_MASK;
+  pos &= 65535;
 
-	// measure latency and compensate if too far away
+  // measure latency and compensate if too far away
 
-	int delta = curPtr - audOld;
+  int delta = curPtr - audOld;
 
-	if (delta < 0)
-		delta += AUD_BUFF_SIZE;
+  if (delta < 0)
+    delta += AUD_BUFF_SIZE;
 
-	//printf("cur: %d from: %d delta: %d nsam: %d\n", curPtr, from, delta, nsam);
+  //printf("cur: %d from: %d delta: %d nsam: %d\n", curPtr, from, delta, nsam);
 
-	if (delta <= audLatencyLocal * 0.6 || delta * 0.6 >= audLatencyLocal)
-	{
-		//printf("audio out of sync - compensating...\n");
-		audOld = (curPtr - audLatencyLocal) & AUD_BUFF_MASK;
-	}
+  if (delta <= audLatencyLocal * 0.6 || delta * 0.6 >= audLatencyLocal)
+  {
+    //printf("audio out of sync - compensating...\n");
+    audOld = (curPtr - audLatencyLocal) & AUD_BUFF_MASK;
+  }
 
-	latdelta = delta;
+  latdelta = delta;
 }
 
 //-----------------------------------------------------------------------------
@@ -161,15 +161,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 enum Reg
 {
-	IR,
-	D,
-	AC,
-	X,
-	Y,
-	OUT,
-	undef,
+  IR,
+  D,
+  AC,
+  X,
+  Y,
+  OUT,
+  undef,
 
-	MAX_REG
+  MAX_REG
 }
 
 struct CpuState { // TTL state that the CPU controls
@@ -282,111 +282,111 @@ void InitCPU()
 
 void DrawLEDs()
 {
-	for (int i=0; i<4; i++)
-	{
-		int mask = 1 << (3-i);
+  for (int i=0; i<4; i++)
+  {
+    int mask = 1 << (3-i);
 
-		int state = (XOUT & mask) != 0;
+    int state = (XOUT & mask) != 0;
 
-		int base = W-40 + 5*i;
+    int base = W-40 + 5*i;
 
-		byte colour = state ? 0x3f : 0x1;
+    byte colour = state ? 0x3f : 0x1;
 
-		for (int y=0; y<4; y++)
-			for (int x=0; x<4; x++)
-				vram[base + y*W + x] = colour;
-	}
+    for (int y=0; y<4; y++)
+      for (int x=0; x<4; x++)
+        vram[base + y*W + x] = colour;
+  }
 }
 
 void HandleInput()
 {
-	byte state = 0;
+  byte state = 0;
 
-	state |= Key(KEY_RIGHT) * 1;
-	state |= Key(KEY_LEFT)  * 2;
-	state |= Key(KEY_DOWN)  * 4;
-	state |= Key(KEY_UP)    * 8;
-	state |= Key(KEY_A)     * 16;
-	state |= Key(KEY_S)     * 32;
-	// buttons flipped since last release
-	state |= Key(KEY_X)     * 64;
-	state |= Key(KEY_Z)     * 128;
+  state |= Key(KEY_RIGHT) * 1;
+  state |= Key(KEY_LEFT)  * 2;
+  state |= Key(KEY_DOWN)  * 4;
+  state |= Key(KEY_UP)    * 8;
+  state |= Key(KEY_A)     * 16;
+  state |= Key(KEY_S)     * 32;
+  // buttons flipped since last release
+  state |= Key(KEY_X)     * 64;
+  state |= Key(KEY_Z)     * 128;
 
-	IN = ~state;
+  IN = ~state;
 }
 
 void GenFrame()
 {
-	// max cycles per frame (a frame should be always 104200 cycles,
-	// so 128k should do)
-	const int MAX_CYCLES = 1 << 17;
+  // max cycles per frame (a frame should be always 104200 cycles,
+  // so 128k should do)
+  const int MAX_CYCLES = 1 << 17;
 
-	int audPtrLocal = audPtr;
+  int audPtrLocal = audPtr;
 
-	int numAuds = 0;
+  int numAuds = 0;
 
-	static int reset = -2;
+  static int reset = -2;
 
-	for(int i=reset; i<MAX_CYCLES; i++)
-	{
-	    if (i < 0)
-	    	S.PC = 0;
+  for(int i=reset; i<MAX_CYCLES; i++)
+  {
+      if (i < 0)
+        S.PC = 0;
 
-	    CpuState T = cpuCycle(S); // Update CPU
+      CpuState T = cpuCycle(S); // Update CPU
 
-	    int hSync = (T.reg[OUT] & 0x40) - (S.reg[OUT] & 0x40); // "VGA monitor" (use simple stdout)
-	    int vSync = (T.reg[OUT] & 0x80) - (S.reg[OUT] & 0x80);
-	    if (vSync < 0) vgaY = -36; // Falling vSync edge
-	    if (vgaX++ < 200) {
-	      if (hSync) ;//putchar(u'|');              // Visual indicator of hSync
-	      else if (vgaX == 200) ;//putchar(u'>');   // Too many pixels
-	      else if (~S.reg[OUT] & 0x80);// putchar(u'^'); // Visualize vBlank pulse
-	      else
-	      {
-	      	if (cast uint vgaY < 480u)
-	      	{
-	      		int base = vgaY*W+4*vgaX;
-	      		vram[base] = vram[base+1] = vram[base+2] = vram[base+3] =
-	      			S.reg[OUT] & 63;      // Plot pixel
-	      	}
-	      }
-	    }
-	    if (hSync > 0) { // Rising hSync edge
-	      XOUT = T.reg[AC];
+      int hSync = (T.reg[OUT] & 0x40) - (S.reg[OUT] & 0x40); // "VGA monitor" (use simple stdout)
+      int vSync = (T.reg[OUT] & 0x80) - (S.reg[OUT] & 0x80);
+      if (vSync < 0) vgaY = -36; // Falling vSync edge
+      if (vgaX++ < 200) {
+        if (hSync) ;//putchar(u'|');              // Visual indicator of hSync
+        else if (vgaX == 200) ;//putchar(u'>');   // Too many pixels
+        else if (~S.reg[OUT] & 0x80);// putchar(u'^'); // Visualize vBlank pulse
+        else
+        {
+          if (cast uint vgaY < 480u)
+          {
+            int base = vgaY*W+4*vgaX;
+            vram[base] = vram[base+1] = vram[base+2] = vram[base+3] =
+              S.reg[OUT] & 63;      // Plot pixel
+          }
+        }
+      }
+      if (hSync > 0) { // Rising hSync edge
+        XOUT = T.reg[AC];
 
-	      numAuds++;
-	      audBuff[audPtrLocal] = XOUT;
-	      audPtrLocal = (audPtrLocal+1) & AUD_BUFF_MASK;
+        numAuds++;
+        audBuff[audPtrLocal] = XOUT;
+        audPtrLocal = (audPtrLocal+1) & AUD_BUFF_MASK;
 
-	      /*printf("%s line %-3d xout %02x t %0.3f\n",
-	             vgaX!=200 ? "~" : "", // Mark horizontal cycle errors
-	             vgaY, T.reg[AC], t/6.250e+06);*/
-	      vgaX = 0;
-	      vgaY++;
+        /*printf("%s line %-3d xout %02x t %0.3f\n",
+               vgaX!=200 ? "~" : "", // Mark horizontal cycle errors
+               vgaY, T.reg[AC], t/6.250e+06);*/
+        vgaX = 0;
+        vgaY++;
 
-	      T.reg[undef] = rand() & 0xff; // Change this once in a while
-	    }
-	    S=T;
+        T.reg[undef] = rand() & 0xff; // Change this once in a while
+      }
+      S=T;
 
-	    if (vSync < 0)
-	    	break;
-	}
+      if (vSync < 0)
+        break;
+  }
 
-	reset = 0;
+  reset = 0;
 
-	DrawLEDs();
+  DrawLEDs();
 
-	audMutex.Lock();
-	audPtr = audPtrLocal;
+  audMutex.Lock();
+  audPtr = audPtrLocal;
 
-	if (numAuds)
-	{
-		// adjust rate and desired latency
-		audRate = numAuds*60;
-		audLatency = audRate/AUD_LATENCY_DIV;
-	}
+  if (numAuds)
+  {
+    // adjust rate and desired latency
+    audRate = numAuds*60;
+    audLatency = audRate/AUD_LATENCY_DIV;
+  }
 
-	audMutex.Unlock();
+  audMutex.Unlock();
 }
 
 //-----------------------------------------------------------------------------
@@ -394,97 +394,97 @@ void GenFrame()
 
 void Init()
 {
-	printf("initializing...\n");
+  printf("initializing...\n");
 
-	rate = GetSampleRate();
-	printf("samplerate: %d Hz\n", rate);
+  rate = GetSampleRate();
+  printf("samplerate: %d Hz\n", rate);
 
-	for (int i=0; i<64; i++)
-	{
-		int r = (i>>0) & 3;
-		int g = (i>>2) & 3;
-		int b = (i>>4) & 3;
+  for (int i=0; i<64; i++)
+  {
+    int r = (i>>0) & 3;
+    int g = (i>>2) & 3;
+    int b = (i>>4) & 3;
 
-		r = r | (r << 2) | (r << 4) | (r << 6);
-		g = g | (g << 2) | (g << 4) | (g << 6);
-		b = b | (b << 2) | (b << 4) | (b << 6);
+    r = r | (r << 2) | (r << 4) | (r << 6);
+    g = g | (g << 2) | (g << 4) | (g << 6);
+    b = b | (b << 2) | (b << 4) | (b << 6);
 
-		uint p = 0xff000000u;
-		p |= r << 16;
-		p |= g << 8;
-		p |= b << 0;
-		pal[i] = p;
-	}
+    uint p = 0xff000000u;
+    p |= r << 16;
+    p |= g << 8;
+    p |= b << 0;
+    pal[i] = p;
+  }
 
-	InitCPU();
+  InitCPU();
 
-	if (use_sound)
-		SetMixCallback(mixCbk);
+  if (use_sound)
+    SetMixCallback(mixCbk);
 }
 
 void Done()
 {
-	printf("exiting...\n");
-	SetMixCallback(null);
+  printf("exiting...\n");
+  SetMixCallback(null);
 }
 
 void Tick(float delta)
 {
-	static float accumulator = 0.0;
+  static float accumulator = 0.0;
 
-	int ms = getms();
+  int ms = getms();
 
-	HandleInput();
+  HandleInput();
 
-	accumulator += delta;
+  accumulator += delta;
 
-	if (use_vsync)
-		accumulator = FRAME_PERIOD;
+  if (use_vsync)
+    accumulator = FRAME_PERIOD;
 
-	// note: beware spiral of death if we're too slow
-	while (accumulator >= FRAME_PERIOD)
-	{
-		GenFrame();
-		accumulator -= FRAME_PERIOD;
-	}
+  // note: beware spiral of death if we're too slow
+  while (accumulator >= FRAME_PERIOD)
+  {
+    GenFrame();
+    accumulator -= FRAME_PERIOD;
+  }
 
-	ClearColor(0xff000000u);
-	Clear();
+  ClearColor(0xff000000u);
+  Clear();
 
-	// lame FPS counter
-	static float fpsSum;
-	static int fpsCount;
-	static int fps;
+  // lame FPS counter
+  static float fpsSum;
+  static int fpsCount;
+  static int fps;
 
-	fpsSum += delta;
-	fpsCount++;
+  fpsSum += delta;
+  fpsCount++;
 
-	if (fpsSum >= 1.)
-	{
-		fps = cast int(cast float(fpsCount) / fpsSum + 0.5);
-		fpsSum = 0.;
-		fpsCount = 0;
-	}
+  if (fpsSum >= 1.)
+  {
+    fps = cast int(cast float(fpsCount) / fpsSum + 0.5);
+    fpsSum = 0.;
+    fpsCount = 0;
+  }
 
 
-	Vec2 pos;
-	Vec2 scl = {1., 1.};
+  Vec2 pos;
+  Vec2 scl = {1., 1.};
 
-	Color tc = {255, 255, 255, 255};
-	TextColor(tc);
+  Color tc = {255, 255, 255, 255};
+  TextColor(tc);
 
-	ms = getms() - ms;
+  ms = getms() - ms;
 
-	BlitBufferPalette(W, H, vram, pal, fixed_size_pixel);
+  BlitBufferPalette(W, H, vram, pal, fixed_size_pixel);
 
-	if (!debug_overlay)
-		return;
+  if (!debug_overlay)
+    return;
 
-	string txt = sprintf("%d fps (sw frame: %d msec)", cast int(fps + 0.5),
-		ms);
-	Text(txt, pos, scl);
+  string txt = sprintf("%d fps (sw frame: %d msec)", cast int(fps + 0.5),
+    ms);
+  Text(txt, pos, scl);
 
-	pos.y += 16.0;
-	txt = sprintf("aud_ofs: %d, want: %d", latdelta, audLatency);
-	Text(txt, pos, scl);
+  pos.y += 16.0;
+  txt = sprintf("aud_ofs: %d, want: %d", latdelta, audLatency);
+  Text(txt, pos, scl);
 }
