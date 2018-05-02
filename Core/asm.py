@@ -3,6 +3,7 @@
 
 from os.path import basename, splitext
 from sys import argv
+import pickle
 
 # Module variables because I don't feel like making a class
 _romSize, _maxRomSize, _zpSize = 0, 0, 1
@@ -329,6 +330,11 @@ def trampoline():
   st(d(lo('vAC')))              #18
   C('+-----------------------------------+')
 
+def link(symfile):
+  global _symbols
+  with open(symfile, 'rb') as file:
+    _symbols = pickle.load(file)
+
 def end(stem=None):
   errors = 0
 
@@ -416,6 +422,12 @@ def end(stem=None):
     file.write(14*' '+'%04x\n' % address)
     assert(len(_rom0) == _romSize)
     assert(len(_rom1) == _romSize)
+
+  # Write symbol file
+  filename = stem + '.sym'
+  print 'Create file', filename
+  with open(filename, 'wb') as file:
+    pickle.dump(_symbols, file)
 
   # Write ROM files
   filename = stem + '.0.rom'

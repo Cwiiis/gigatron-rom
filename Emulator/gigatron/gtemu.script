@@ -20,7 +20,7 @@ bool debug_overlay = true;
 //-----------------------------------------------------------------------------
 // loader configuration:
 
-const string loader_file = "../Snake.bin";
+const string loader_file = "../Snake.gt1";
 
 //-----------------------------------------------------------------------------
 // rendering:
@@ -213,7 +213,10 @@ void handleFrame(int payload_size, int address)
 
   case ADR_H:
     bytes_sent = 0;
-    sendBits(program[program_adr + sent], 8);
+    if (payload_size)
+      sendBits(program[program_adr + sent], 8);
+    else
+      sendBits(0x00, 8);
     sending = PAYLOAD;
     break;
 
@@ -249,7 +252,7 @@ void HandleLoader()
   case WAITING: {
     int fp = fopen(loader_file, "rb");
     if (!fp) {
-      printf("Error: failed to open bin file\n");
+      printf("Error: failed to open gt1 file\n");
       return;
     }
     program_size = fread(program, 1<<15, fp);
@@ -276,8 +279,8 @@ void HandleLoader()
   }
 
   case RESYNC:
-    if (page_start >= program_size) {
-      payload_adr = ((program[0] << 8) | program[1]);
+    if (page_start >= program_size - 3) {
+      payload_adr = ((program[program_size-2] << 8) | program[program_size-1]);
       payload_size = 0;
     }
 
@@ -289,7 +292,6 @@ void HandleLoader()
 
     checksum = 0x67; // 'g'
     if (payload_size == 0) {
-      payload_adr = ((program[0] << 8) | program[1]);
       printf("Sending exec (%04x)...\n", payload_adr);
       loading = EXEC;
       sending = PROTOCOL;
@@ -311,7 +313,7 @@ void HandleLoader()
         sending = PROTOCOL;
       } else {
         page_start += payload_size + 3;
-        printf("Sending resync...\n");
+        printf("Sending resync (%04x)...\n", page_start);
         checksum = 0;
         frames_sent = 0;
         loading = RESYNC;
@@ -330,8 +332,7 @@ void HandleLoader()
       printf("Done.\n");
       loading = WAITING;
     } else {
-      // TODO: Look at the file format, make sure I conform.
-      payload_adr = ((program[0] << 8) | program[1]);
+      payload_adr = ((program[program_size-2] << 8) | program[program_size-1]);
       handleFrame(0, payload_adr);
     }
     break;

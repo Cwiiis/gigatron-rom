@@ -388,8 +388,6 @@ class Program:
     return (name, number, op if len(op)>0 else None)
 
   def end(self):
-    if self.forRom is False:
-      self.line('[do loop]')
     self.segInfo()
     # XXX Check all blocks are closed
     if len(self.conds) > 0:

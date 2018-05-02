@@ -65,3 +65,4 @@ gcl0x
 $800 ClearScreen!
 $838 Pos=
 StringHelloWorld PrintText!
+[do loop] { Loop forever }
