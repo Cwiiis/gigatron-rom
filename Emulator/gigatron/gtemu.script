@@ -12,7 +12,7 @@ bool use_sound = true;
 bool fixed_size_pixel = true;
 
 // ROM file to load
-const string rom_file = "gigatron/theloop.2.rom";
+const string rom_file = "../theloop.2.rom";
 
 // set to false to disable debug overlay
 bool debug_overlay = true;
@@ -20,7 +20,7 @@ bool debug_overlay = true;
 //-----------------------------------------------------------------------------
 // loader configuration:
 
-const string loader_file = "gigatron/Blinky.bin";
+const string loader_file = "../Snake.bin";
 
 //-----------------------------------------------------------------------------
 // rendering:
@@ -167,8 +167,7 @@ syncState wait_for_vsync = START;
 syncState wait_for_hsync = START;
 
 byte program[1<<15];
-int n_pages;
-int pages_sent;
+int page_start;
 int program_size;
 int frames_sent;
 int bytes_sent;
@@ -193,7 +192,7 @@ void handleFrame(int payload_size, int address)
   }
 
   int sent = frames_sent * 60;
-  int program_adr = (pages_sent * 256) + 3;
+  int program_adr = page_start + 3;
 
   switch(sending) {
   case PROTOCOL:
@@ -220,7 +219,10 @@ void handleFrame(int payload_size, int address)
 
   case PAYLOAD:
     if (++bytes_sent < 60) {
-      sendBits(program[program_adr + sent + bytes_sent], 8);
+      if (bytes_sent >= payload_size)
+        sendBits(0x00, 8);
+      else
+        sendBits(program[program_adr + sent + bytes_sent], 8);
     } else {
       last_byte = -checksum;
       sendBits(last_byte, 8);
@@ -238,9 +240,9 @@ void handleFrame(int payload_size, int address)
 void HandleLoader()
 {
   // TODO: Should probably validate the input file...
-   int payload_size = program[(pages_sent * 256) + 2];
-   int payload_adr = ((program[(pages_sent * 256)] << 8) |
-                      program[(pages_sent * 256) + 1]) +
+   int payload_size = program[page_start + 2];
+   int payload_adr = ((program[page_start] << 8) |
+                      program[page_start + 1]) +
                      (frames_sent * 60);
 
   switch(loading) {
@@ -258,11 +260,9 @@ void HandleLoader()
       return;
     }
 
-    n_pages = (program_size + 255) / 256;
-
     printf("Loading %s (%d bytes)...\n", loader_file, program_size);
 
-    pages_sent = 0;
+    page_start = 0;
     frames_sent = 0;
     checksum = 0;
     debug_write = 0;
@@ -281,22 +281,34 @@ void HandleLoader()
       handleFrame(payload_size, payload_adr);
       break;
     }
-    printf("Sending program...\n");
+    printf("Sending payload (%04x/%d)...\n", payload_adr, payload_size);
     checksum = 0x67; // 'g'
     frames_sent = -1;
+    payload_adr -= 60;
     loading = SEND;
     // Pass through to SEND
 
   case SEND:
     if (sending == IDLE) {
       if ((++frames_sent) * 60 < payload_size) {
-        printf("Sending payload (%04x/%d)...\n", payload_adr, payload_size);
+        printf("Sending next frame (%04x/%d)...\n",
+               payload_adr + 60, payload_size);
         sendFirst(0x4C, 8); // 'L'
         sending = PROTOCOL;
       } else {
-        ++pages_sent;
-        if (pages_sent < n_pages) {
-          // TODO: Implement
+        if (page_start + payload_size + 4 < program_size) {
+          page_start += payload_size + 3;
+
+           payload_size = program[page_start + 2];
+           payload_adr = ((program[page_start] << 8) |
+                           program[page_start + 1]);
+          printf("Sending payload (%04x/%d)...\n",
+                 payload_adr, payload_size);
+
+          checksum = 0x67;
+          frames_sent = 0;
+          sending = PROTOCOL;
+          sendFirst(0x4C, 8);  // 'L'
         } else {
           // We've finished sending the program, send the execution frame.
           printf("Sending exec...\n");
@@ -306,6 +318,7 @@ void HandleLoader()
         }
       }
     } else {
+      payload_size -= frames_sent * 60;
       if (payload_size > 60) payload_size = 60;
       handleFrame(payload_size, payload_adr);
     }
@@ -419,10 +432,10 @@ CpuState cpuCycle(const CpuState S)
     case 3: B=IN;                         break;
   }
 
-  if (loading != WAITING && bus == 3) {
+  /*if (loading != WAITING && bus == 3) {
     printf("Reading from input, vga: %d, %d, vSync: %d, hSync: %d\n",
            vgaX, vgaY, S.reg[OUT] & 0x80, S.reg[OUT] & 0x40);
-  }
+  }*/
 
   if (W) RAM[addr&0x7fff] = B; // Random Access Memory
 
