@@ -284,7 +284,6 @@ void HandleLoader()
     printf("Sending payload (%04x/%d)...\n", payload_adr, payload_size);
     checksum = 0x67; // 'g'
     frames_sent = -1;
-    payload_adr -= 60;
     loading = SEND;
     // Pass through to SEND
 
@@ -292,7 +291,7 @@ void HandleLoader()
     if (sending == IDLE) {
       if ((++frames_sent) * 60 < payload_size) {
         printf("Sending next frame (%04x/%d)...\n",
-               payload_adr + 60, payload_size);
+               payload_adr, payload_size - (frames_sent * 60));
         sendFirst(0x4C, 8); // 'L'
         sending = PROTOCOL;
       } else {
@@ -304,6 +303,8 @@ void HandleLoader()
                            program[page_start + 1]);
           printf("Sending payload (%04x/%d)...\n",
                  payload_adr, payload_size);
+          printf("Sending next frame (%04x/%d)...\n",
+                 payload_adr, payload_size);
 
           checksum = 0x67;
           frames_sent = 0;
@@ -311,7 +312,8 @@ void HandleLoader()
           sendFirst(0x4C, 8);  // 'L'
         } else {
           // We've finished sending the program, send the execution frame.
-          printf("Sending exec...\n");
+          payload_adr = ((program[0] << 8) | program[1]);
+          printf("Sending exec (%04x)...\n", payload_adr);
           sendFirst(0x4C, 8); // 'L'
           sending = PROTOCOL;
           loading = EXEC;
@@ -326,7 +328,7 @@ void HandleLoader()
 
   case EXEC:
     if (sending == IDLE) {
-      printf("Done, sent %d frames.\n", frames_sent);
+      printf("Done.\n");
       loading = WAITING;
     } else {
       // TODO: Look at the file format, make sure I conform.
@@ -609,8 +611,8 @@ void GenFrame()
           if (loader_bit == 0) {
             // FIXME: Why is this necessary?
             IN = loader_byte;
-            printf("%03d - (%04d, %04d) Wrote byte 0x%02x (0x%02x)\n",
-                   debug_write++, vgaX, vgaY, loader_byte, IN);
+            /*printf("%03d - (%04d, %04d) Wrote byte 0x%02x (0x%02x)\n",
+                   debug_write++, vgaX, vgaY, loader_byte, IN);*/
             checksum += loader_byte;
           }
         }
