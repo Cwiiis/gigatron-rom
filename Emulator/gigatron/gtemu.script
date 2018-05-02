@@ -313,6 +313,7 @@ void HandleLoader()
         page_start += payload_size + 3;
         printf("Sending resync...\n");
         checksum = 0;
+        frames_sent = 0;
         loading = RESYNC;
         sending = PROTOCOL;
         sendFirst(-1, 8);
@@ -433,8 +434,8 @@ CpuState cpuCycle(const CpuState S)
   }
 
   /*if (loading != WAITING && bus == 3) {
-    printf("Reading from input, vga: %d, %d, vSync: %d, hSync: %d\n",
-           vgaX, vgaY, S.reg[OUT] & 0x80, S.reg[OUT] & 0x40);
+    printf("Reading (%02x) from input, vga: %d, %d, vSync: %d, hSync: %d\n",
+           B, vgaX, vgaY, S.reg[OUT] & 0x80, S.reg[OUT] & 0x40);
   }*/
 
   if (W) RAM[addr&0x7fff] = B; // Random Access Memory
@@ -596,20 +597,22 @@ void GenFrame()
       if (loading != WAITING) {
         if (wait_for_vsync == CHANGED && wait_for_hsync == CHANGED &&
             loader_bit > 0) {
-          //printf("(%04d, %04d) Writing bit %d of 0x%02x\n",
-          //       vgaX, vgaY, loader_bit, loader_byte);
-          int bit = 7 - (--loader_bit);
-          if (loader_byte & (1 << bit)) {
+          /*printf("(%04d, %04d) Writing bit %d of 0x%02x\n",
+                 vgaX, vgaY, loader_bit, loader_byte);*/
+          /*int bit = */--loader_bit;
+          /*if (loader_byte & (1 << bit)) {
             IN |= 1 << bit;
           } else {
             IN &= ~(1 << bit);
-          }
+          }*/
           wait_for_hsync = START;
 
+          // FIXME: this is a hack...
+          IN = loader_byte;
+
           if (loader_bit == 0) {
-            // FIXME: Why is this necessary?
-            IN = loader_byte;
-            /*printf("%03d - (%04d, %04d) Wrote byte 0x%02x (0x%02x)\n",
+            /*printf("%s%03d - (%04d, %04d) Wrote byte 0x%02x (0x%02x)\n",
+                   (IN != loader_byte) ? "!!! " : "",
                    debug_write++, vgaX, vgaY, loader_byte, IN);*/
             checksum += loader_byte;
           }
