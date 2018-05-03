@@ -272,7 +272,7 @@ void HandleLoader()
     checksum = 0;
     debug_write = 0;
 
-    printf("Sending resync...\n");
+    printf("(%d, %d) Sending resync...\n", vgaX, vgaY);
     sendFirst(-1, 8);
     loading = RESYNC;
     sending = PROTOCOL;
@@ -293,14 +293,14 @@ void HandleLoader()
 
     checksum = 0x67; // 'g'
     if (payload_size == 0) {
-      printf("Sending exec (%04x)...\n", payload_adr);
+      printf("(%d, %d) Sending exec (%04x)...\n", vgaX, vgaY, payload_adr);
       loading = EXEC;
       sending = PROTOCOL;
       sendFirst(0x4C, 8); // 'L'
       break;
     }
 
-    printf("Sending payload (%04x/%d)...\n", payload_adr, payload_size);
+    printf("(%d, %d) Sending payload (%04x/%d)...\n", vgaX, vgaY, payload_adr, payload_size);
     frames_sent = -1;
     loading = SEND;
     // Pass through to SEND
@@ -308,13 +308,19 @@ void HandleLoader()
   case SEND:
     if (sending == IDLE) {
       if ((++frames_sent) * 60 < payload_size) {
-        printf("Sending next frame (%04x/%d)...\n",
+        printf("(%d, %d) Sending next frame (%04x/%d)...\n", vgaX, vgaY,
                payload_adr, payload_size - (frames_sent * 60));
         sendFirst(0x4C, 8); // 'L'
         sending = PROTOCOL;
       } else {
         page_start += payload_size + 3;
-        printf("Sending resync (%04x)...\n", page_start);
+        if (page_start >= program_size - 3) {
+          payload_adr = ((program[program_size-2] << 8) | program[program_size-1]);
+        } else {
+          payload_adr = ((program[page_start] << 8) |
+                          program[page_start + 1]);
+        }
+        printf("(%d, %d) Sending resync (%04x)...\n", vgaX, vgaY, payload_adr);
         checksum = 0;
         frames_sent = 0;
         loading = RESYNC;
@@ -330,7 +336,7 @@ void HandleLoader()
 
   case EXEC:
     if (sending == IDLE) {
-      printf("Done.\n");
+      printf("(%d, %d) Done.\n", vgaX, vgaY);
       loading = WAITING;
       IN = 0xff;
     } else {
@@ -600,11 +606,7 @@ void GenFrame()
             /*printf("(%04d, %04d) Writing bit %d of 0x%02x\n",
                    vgaX, vgaY, loader_bit, loader_byte);*/
             int bit = --loader_bit;
-            if (loader_byte & (1 << bit)) {
-              IN |= 1 << bit;
-            } else {
-              IN &= ~(1 << bit);
-            }
+            IN = ((IN << 1) & 0xfe) | !!(loader_byte & (1 << bit));
             wait_for_hsync = START;
 
             if (loader_bit == 0) {
