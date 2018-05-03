@@ -20,7 +20,7 @@ bool debug_overlay = true;
 //-----------------------------------------------------------------------------
 // loader configuration:
 
-const string loader_file = "../Snake.gt1";
+const string loader_file = "../Credits.gt1";
 
 //-----------------------------------------------------------------------------
 // rendering:
@@ -238,11 +238,34 @@ void handleFrame(int payload_size, int address)
 
 void HandleLoader()
 {
-    if (loading != WAITING &&
-        (wait_for_hsync != CHANGED || wait_for_vsync != CHANGED ||
-         loader_bit != 0)) {
+  if (loading != WAITING) {
+    if (wait_for_vsync == CHANGED && wait_for_hsync == CHANGED) {
+      if (loader_bit > 0) {
+        printf("(%04d, %04d) Writing bit %d of 0x%02x\n",
+               vgaX, vgaY, loader_bit, loader_byte);
+        int bit = --loader_bit;
+        if (loader_byte & (1 << bit)) {
+          IN[0] |= 1 << bit;
+        } else {
+          IN[0] &= ~(1 << bit);
+        }
+        wait_for_hsync = START;
+
+        if (loader_bit == 0) {
+          printf("%s%03d - (%04d, %04d) Wrote byte 0x%02x (0x%02x)\n",
+                 (IN[0] != loader_byte) ? "!!! " : "",
+                 debug_write++, vgaX, vgaY, loader_byte, IN[0]);
+          checksum += IN[0];
+        }
+        return;
+      } else {
+        // Write 1 when idle
+        IN[0] = 0xff;
+      }
+    } else {
       return;
     }
+  }
 
   // TODO: Should probably validate the input file...
    int payload_size = program[page_start + 2];
@@ -332,7 +355,7 @@ void HandleLoader()
     if (sending == IDLE) {
       printf("Done.\n");
       loading = WAITING;
-      IN = 0xff;
+      IN[0] = 0xff;
     } else {
       payload_adr = ((program[program_size-2] << 8) | program[program_size-1]);
       handleFrame(0, payload_adr);
@@ -392,7 +415,7 @@ struct CpuState { // TTL state that the CPU controls
 
 byte ROM[(1<<16)*2];
 byte RAM[1<<15];
-byte IN=0xff;
+byte IN[3] = { 0xff, 0xff, 0xff };
 byte XOUT=AUD_XOR_MASK;
 
 CpuState cpuCycle(const CpuState S)
@@ -433,13 +456,13 @@ CpuState cpuCycle(const CpuState S)
     case 0: B=S.reg[D];                   break;
     case 1: if (!W) B = RAM[addr&0x7fff]; break;
     case 2: B=S.reg[AC];                  break;
-    case 3: B=IN;                         break;
+    case 3: B=IN[2];                      break;
   }
 
-  /*if (loading != WAITING && bus == 3) {
+  if (loading != WAITING && bus == 3) {
     printf("Reading (%02x) from input, vga: %d, %d, vSync: %d, hSync: %d\n",
            B, vgaX, vgaY, S.reg[OUT] & 0x80, S.reg[OUT] & 0x40);
-  }*/
+  }
 
   if (W) RAM[addr&0x7fff] = B; // Random Access Memory
 
@@ -530,7 +553,7 @@ void HandleInput()
   state |= Key(KEY_X)     * 64;
   state |= Key(KEY_Z)     * 128;
 
-  IN = ~state;
+  IN[0] = ~state;
 }
 
 void GenFrame()
@@ -552,6 +575,21 @@ void GenFrame()
 
       CpuState T = cpuCycle(S); // Update CPU
 
+      // Update loader if we're loading
+      if (loading != WAITING) {
+        HandleLoader();
+      }
+
+      // Update sync pins if they were waiting
+      if ((S.reg[OUT] & 0x80) && wait_for_vsync == START) wait_for_vsync = WAIT;
+      if (!(S.reg[OUT] & 0x80) && wait_for_vsync == WAIT) wait_for_vsync = CHANGED;
+      if (!(S.reg[OUT] & 0x40) && wait_for_hsync == START) wait_for_hsync = WAIT;
+      if ((S.reg[OUT] & 0x40) && wait_for_hsync == WAIT) wait_for_hsync = CHANGED;
+
+      /*if (loading != WAITING) {
+        printf("(%d, %d) vSync: %d, hSync: %d\n",
+               vgaX, vgaY, S.reg[OUT] & 0x80, S.reg[OUT] & 0x40);
+      }*/
       int hSync = (T.reg[OUT] & 0x40) - (S.reg[OUT] & 0x40); // "VGA monitor" (use simple stdout)
       int vSync = (T.reg[OUT] & 0x80) - (S.reg[OUT] & 0x80);
       if (vSync < 0) vgaY = -36; // Falling vSync edge
@@ -583,44 +621,14 @@ void GenFrame()
         vgaY++;
 
         T.reg[undef] = rand() & 0xff; // Change this once in a while
+
+        // Emulate data bus latency.
+        // Note, source says there's 1 bit latency, but likely due to some
+        // other error I've made, it seems more like 2...
+        IN[2] = IN[1];
+        IN[1] = IN[0];
       }
       S=T;
-
-      // Update vsync/hsync wait states
-      // FIXME: Why do we need these vgaY hacks here?
-      if (/*vSync > 0 && */vgaY == -36 && wait_for_vsync == START) wait_for_vsync = WAIT;
-      if (/*vSync < 0 && */vgaY == -34 && wait_for_vsync == WAIT) wait_for_vsync = CHANGED;
-      if (hSync < 0 && wait_for_hsync == START) wait_for_hsync = WAIT;
-      if (hSync > 0 && wait_for_hsync == WAIT) wait_for_hsync = CHANGED;
-
-      // Update loader if we're loading
-      if (loading != WAITING) {
-        if (wait_for_vsync == CHANGED && wait_for_hsync == CHANGED) {
-          if (loader_bit > 0) {
-            /*printf("(%04d, %04d) Writing bit %d of 0x%02x\n",
-                   vgaX, vgaY, loader_bit, loader_byte);*/
-            int bit = --loader_bit;
-            if (loader_byte & (1 << bit)) {
-              IN |= 1 << bit;
-            } else {
-              IN &= ~(1 << bit);
-            }
-            wait_for_hsync = START;
-
-            if (loader_bit == 0) {
-              /*printf("%s%03d - (%04d, %04d) Wrote byte 0x%02x (0x%02x)\n",
-                     (IN != loader_byte) ? "!!! " : "",
-                     debug_write++, vgaX, vgaY, loader_byte, IN);*/
-              checksum += IN;
-            }
-          } else {
-            // Write 1 when idle
-            IN = 0xff;
-          }
-        }
-
-        HandleLoader();
-      }
 
       if (vSync < 0)
         break;
