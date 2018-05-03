@@ -600,22 +600,19 @@ void GenFrame()
             loader_bit > 0) {
           /*printf("(%04d, %04d) Writing bit %d of 0x%02x\n",
                  vgaX, vgaY, loader_bit, loader_byte);*/
-          /*int bit = */--loader_bit;
-          /*if (loader_byte & (1 << bit)) {
+          int bit = --loader_bit;
+          if (loader_byte & (1 << bit)) {
             IN |= 1 << bit;
           } else {
             IN &= ~(1 << bit);
-          }*/
+          }
           wait_for_hsync = START;
-
-          // FIXME: this is a hack...
-          IN = loader_byte;
 
           if (loader_bit == 0) {
             /*printf("%s%03d - (%04d, %04d) Wrote byte 0x%02x (0x%02x)\n",
                    (IN != loader_byte) ? "!!! " : "",
                    debug_write++, vgaX, vgaY, loader_byte, IN);*/
-            checksum += loader_byte;
+            checksum += IN;
           }
         }
 
