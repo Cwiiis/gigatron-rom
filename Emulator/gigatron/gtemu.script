@@ -12,10 +12,19 @@ bool use_sound = true;
 bool fixed_size_pixel = true;
 
 // ROM file to load
-const string rom_file = "gigatron/theloop.2.rom";
+const string rom_file = "../theloop.2.rom";
 
 // set to false to disable debug overlay
 bool debug_overlay = true;
+
+//-----------------------------------------------------------------------------
+// loader configuration:
+
+// GT1 compiled binary to load
+const string loader_file = "../Snake.gt1";
+
+// Whether to load program code directly into RAM
+bool loadDirect = false;
 
 //-----------------------------------------------------------------------------
 // rendering:
@@ -128,6 +137,289 @@ void mixCbk(short buff[], int nsam)
   latdelta = delta;
 }
 
+enum loadState {
+  WAITING,
+  RESYNC,
+  SEND,
+  EXEC
+};
+loadState loading = WAITING;
+
+enum sendState {
+  PROTOCOL,
+  LEN,
+  ADR_L,
+  ADR_H,
+  PAYLOAD,
+  CHECKSUM,
+  IDLE
+};
+sendState sending = IDLE;
+
+byte loader_byte;
+byte loader_bit = 0;
+byte checksum;
+byte last_byte;
+byte protocol;
+
+enum syncState {
+  START,
+  WAIT,
+  CHANGED
+};
+syncState wait_for_vsync = START;
+syncState wait_for_hsync = START;
+
+byte program[1<<15];
+int page_start;
+int program_size;
+int frames_sent;
+int bytes_sent;
+int debug_write;
+
+void sendBits(byte value, byte n)
+{
+  loader_byte = value | (0xff << n);
+  loader_bit = n;
+}
+
+void sendFirst(byte value, byte n)
+{
+  wait_for_vsync = START;
+  sendBits(value, n);
+}
+
+void handleFrame(int send_size, int payload_size, int address, int program_adr)
+{
+  int sent = frames_sent * 60;
+  if (payload_size > 60) payload_size = 60;
+  if (send_size > 60) send_size = 60;
+
+  switch(sending) {
+  case PROTOCOL:
+    checksum += loader_byte << 6;
+    sendBits(send_size, 6);
+    sending = LEN;
+    break;
+
+  case LEN:
+    sendBits(address & 255, 8);
+    sending = ADR_L;
+    break;
+
+  case ADR_L:
+    sendBits(address >> 8, 8);
+    sending = ADR_H;
+    break;
+
+  case ADR_H:
+    bytes_sent = 0;
+    if (payload_size)
+      sendBits(program[program_adr + sent], 8);
+    else
+      sendBits(0x00, 8);
+    sending = PAYLOAD;
+    break;
+
+  case PAYLOAD:
+    if (++bytes_sent < 60) {
+      if (bytes_sent >= payload_size)
+        sendBits(0x00, 8);
+      else
+        sendBits(program[program_adr + sent + bytes_sent], 8);
+    } else {
+      last_byte = -checksum;
+      sendBits(last_byte, 8);
+      sending = CHECKSUM;
+    }
+    break;
+
+  case CHECKSUM:
+    checksum = last_byte;
+    sending = IDLE;
+    break;
+  }
+}
+
+void HandleLoader()
+{
+  if (loading != WAITING) {
+    if (wait_for_hsync == CHANGED && wait_for_vsync == CHANGED) {
+      if (loader_bit > 0) {
+        /*printf("(%04d, %04d) Writing bit %d of 0x%02x to 0x%02x\n",
+               vgaX, vgaY, loader_bit, loader_byte, IN);*/
+        int bit = --loader_bit;
+        IN <<= 1;
+        if (loader_byte & (1 << bit)) IN |= 0x01;
+        //IN = ((IN << 1) & 0xfe) | !!(loader_byte & (1 << bit));
+        wait_for_hsync = START;
+
+        if (loader_bit == 0) {
+          /*printf("%s%03d - (%04d, %04d) Wrote byte 0x%02x (0x%02x)\n",
+                 (IN != loader_byte) ? "!!! " : "",
+                 debug_write++, vgaX, vgaY, loader_byte, IN);*/
+          checksum += loader_byte;
+        }
+
+        return;
+      } else {
+        // Write 1 when idle
+        IN = 0xff;
+      }
+    } else {
+      return;
+    }
+  }
+
+  // TODO: Should probably validate the input file...
+  int payload_size = program[page_start + 2];
+  if (payload_size == 0) payload_size = 256;
+  int program_adr = page_start + 3;
+  int payload_adr = ((program[page_start] << 8) |
+                     program[page_start + 1]) +
+                    (frames_sent * 60);
+
+  switch(loading) {
+  case WAITING: {
+    int fp = fopen(loader_file, "rb");
+    if (!fp) {
+      printf("Error: failed to open gt1 file\n");
+      return;
+    }
+    program_size = fread(program, 1<<15, fp);
+    fclose(fp);
+
+    if (program_size <= 0) {
+      printf("Error: Failed to read program\n");
+      return;
+    }
+
+    printf("Loading %s (%d bytes)...\n", loader_file, program_size);
+
+    page_start = 0;
+    frames_sent = 0;
+    checksum = 0;
+    debug_write = 0;
+
+    if (loadDirect) {
+      do {
+        // Copy segment into RAM
+        payload_adr = (program[page_start] << 8) |
+                      program[page_start + 1];
+        payload_size = program[page_start + 2];
+        if (payload_size == 0) payload_size = 256;
+        // FIXME: The Arduino loader doesn't blank out the rest of the
+        //        page, but if I don't do this, I get very unreliable
+        //        loading for larger apps.
+        if ((payload_adr + payload_size - 1) > (payload_adr | 0xff)) {
+          printf("Invalid segment size, too large!\n");
+        }
+        int i;
+        for (i = payload_adr; i < payload_adr + payload_size; ++i) {
+            RAM[i] = program[page_start + 3 + (i - payload_adr)];
+        }
+        for (; i < (payload_adr | 0xff); ++i) {
+            RAM[i] = 0x00;
+        }
+
+        // Go onto next page
+        page_start += payload_size + 3;
+      } while(page_start < program_size - 3);
+    }
+
+    printf("(%d, %d) Sending resync...\n", vgaX, vgaY);
+    sendFirst(-1, 8);
+    loading = RESYNC;
+    sending = PROTOCOL;
+    break;
+  }
+
+  case RESYNC:
+    if (page_start >= program_size - 3) {
+      program_adr = 0;
+      payload_adr = (program[program_size-2] << 8) |
+                    program[program_size-1];
+      payload_size = 0;
+    }
+    if (sending != IDLE) {
+      if (sending == PROTOCOL) {
+        printf("(%d, %d) Sending resync (0x%04x/%d, 0x%04x)\n",
+               vgaX, vgaY, payload_adr, payload_size, program_adr);
+      }
+      handleFrame(payload_size, payload_size, payload_adr, program_adr);
+      break;
+    }
+
+    checksum = 0x67; // 'g'
+    if (payload_size == 0) {
+      loading = EXEC;
+      sending = PROTOCOL;
+      sendFirst(0x4C, 8); // 'L'
+      break;
+    }
+
+    printf("(%d, %d) Sending payload (0x%04x/%d)...\n",
+           vgaX, vgaY, payload_adr, payload_size);
+    frames_sent = -1;
+    loading = SEND;
+    // Pass through to SEND
+
+  case SEND: {
+    int seg_adr = payload_adr - (frames_sent * 60);
+    int page_size = (seg_adr | 0xFF) - seg_adr;
+    if (sending == IDLE) {
+      if ((++frames_sent) * 60 < page_size) {
+        printf("(%d, %d) Sending next frame (0x%04x/%d)...\n", vgaX, vgaY,
+               payload_adr, page_size - (frames_sent * 60));
+        sendFirst(0x4C, 8); // 'L'
+        sending = PROTOCOL;
+      } else {
+        page_start += payload_size + 3;
+        if (page_start >= program_size - 3) {
+          payload_adr = (program[program_size-2] << 8) |
+                        program[program_size-1];
+        } else {
+          payload_adr = (program[page_start] << 8) |
+                         program[page_start + 1];
+        }
+        checksum = 0;
+        frames_sent = 0;
+        loading = RESYNC;
+        sending = PROTOCOL;
+        sendFirst(-1, 8);
+      }
+    } else {
+      payload_size -= frames_sent * 60;
+      page_size -= frames_sent * 60;
+      if (payload_size > page_size) {
+        if (sending == PROTOCOL) {
+          printf("Warning: Payload size exceeds page size\n");
+        }
+        page_size = payload_size;
+      }
+      handleFrame(page_size, payload_size,
+                  payload_adr, page_start + 3);
+    }
+    break;
+  }
+
+  case EXEC:
+    if (sending == IDLE) {
+      printf("(%d, %d) Done.\n", vgaX, vgaY);
+      loading = WAITING;
+      IN = 0xff;
+      break;
+    } else {
+      payload_adr = (program[program_size-2] << 8) | program[program_size-1];
+      if (sending == PROTOCOL) {
+        printf("(%d, %d) Sending exec (0x%04x)...\n", vgaX, vgaY, payload_adr);
+      }
+      handleFrame(0, 0, payload_adr, 0);
+    }
+    break;
+  }
+}
+
 //-----------------------------------------------------------------------------
 // emulator:
 
@@ -222,6 +514,11 @@ CpuState cpuCycle(const CpuState S)
     case 2: B=S.reg[AC];                  break;
     case 3: B=IN;                         break;
   }
+
+  /*if (loading != WAITING && bus == 3) {
+    printf("Reading (%02x) from input, vga: %d, %d, vSync: %d, hSync: %d\n",
+           B, vgaX, vgaY, S.reg[OUT] & 0x80, S.reg[OUT] & 0x40);
+  }*/
 
   if (W) RAM[addr&0x7fff] = B; // Random Access Memory
 
@@ -368,6 +665,18 @@ void GenFrame()
       }
       S=T;
 
+      // Update vsync/hsync wait states
+      // FIXME: Why do we need these vgaY hacks here?
+      if (/*vSync > 0 && */vgaY == -36 && wait_for_vsync == START) wait_for_vsync = WAIT;
+      if (/*vSync < 0 && */vgaY == -34 && wait_for_vsync == WAIT) wait_for_vsync = CHANGED;
+      if (hSync < 0 && wait_for_hsync == START) wait_for_hsync = WAIT;
+      if (hSync > 0 && wait_for_hsync == WAIT) wait_for_hsync = CHANGED;
+
+      // Update loader if we're loading
+      if (loading != WAITING) {
+        HandleLoader();
+      }
+
       if (vSync < 0)
         break;
   }
@@ -434,7 +743,13 @@ void Tick(float delta)
 
   int ms = getms();
 
-  HandleInput();
+  if (loading == WAITING) {
+    if (Key(KEY_L)) {
+      HandleLoader();
+    } else {
+      HandleInput();
+    }
+  }
 
   accumulator += delta;
 
