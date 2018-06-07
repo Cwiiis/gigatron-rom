@@ -65,3 +65,9 @@ print 'Create file', gt1File
 
 with open(gt1File, 'wb') as output:
   output.write(data)
+
+#-----------------------------------------------------------------------
+#  Write out asm file
+#-----------------------------------------------------------------------
+writeDisassembly(stem)
+

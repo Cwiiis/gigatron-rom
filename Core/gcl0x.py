@@ -22,13 +22,15 @@ class Program:
     self.comment = 0
     self.lineNumber, self.filename = 0, None
     self.blocks, self.block = [0], 1
-    self.loops = {} # block -> address of last do
-    self.conds = {} # block -> address of continuation
-    self.defs  = {} # block -> address of last def
-    self.vars  = {} # name -> address
+    self.loops  = {} # block -> address of last do
+    self.conds  = {} # block -> address of continuation
+    self.defs   = {} # block -> address of last def
+    self.vars   = {} # name -> address
+    self.consts = {} # name -> address
     self.vPC = None
     self.segId = 0
-    self.org(address)
+    if address is not None:
+      self.org(address)
     self.version = None # Must be first word 'gcl<N>'
 
   def segInfo(self):
@@ -204,6 +206,8 @@ class Program:
       elif op == '=' and con is not None:
           self.opcode('STW')
           self.emit(con)
+      elif op == '@' and var:
+          self.consts[var] = self.vPC
       elif op == '+' and var:
           self.opcode('ADDW')
           self.emit(self.getAddress(var), '%04x %s' % (prev(self.vPC, 1), repr(var)))
@@ -392,6 +396,9 @@ class Program:
           ix += 1
 
         name = name if len(name)>0 else None
+        if name in self.consts:
+          number = self.consts[name]
+          name = None
 
     if number is not None:
       if sign == '-': number = -number

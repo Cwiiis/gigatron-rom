@@ -362,14 +362,7 @@ def end():
 def getRom1():
   return ''.join(chr(byte) for byte in _rom1)
 
-def writeRomFiles(sourceFile):
-
-  # Determine stem for file names
-  stem, _ = splitext(sourceFile)
-  stem = basename(stem)
-  if stem == '': stem = 'out'
-
-  # Disassemble for readability
+def writeDisassembly(stem):
   filename = stem + '.asm'
   print 'Create file', filename
   with open(filename, 'w') as file:
@@ -426,6 +419,16 @@ def writeRomFiles(sourceFile):
     file.write(14*' '+'%04x\n' % address)
     assert(len(_rom0) == _romSize)
     assert(len(_rom1) == _romSize)
+
+def writeRomFiles(sourceFile):
+
+  # Determine stem for file names
+  stem, _ = splitext(sourceFile)
+  stem = basename(stem)
+  if stem == '': stem = 'out'
+
+  # Disassemble for readability
+  writeDisassembly(stem)
 
   # Write symbol file
   # XXX Remove when compiler can work with "bindings.json"
